@@ -1,2 +1,5 @@
-geckodriver.log
-transcript_*
+*.log
+channels/*
+transcripts/*
+complete/*
+*.csv
