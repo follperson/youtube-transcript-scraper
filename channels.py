@@ -24,7 +24,7 @@ headless = True
 OUTDIR = './transcripts/'
 filepattern = 'tanscript_{}.txt'
 OPTIONS = webdriver.ChromeOptions()
-OPTIONS.headless=True
+# OPTIONS.headless = True
 
 YOUTUBE_BASE = "https://www.youtube.com/channel/{}/videos"
 OUTER_FRAME_XPATH = '//body[@dir="ltr"]'
@@ -32,17 +32,25 @@ OUTER_FRAME_XPATH = '//body[@dir="ltr"]'
 def random_wait(smin=5, smax=15):
     sleep(random.uniform(smin, smax))
 
+
+def get_driver():
+    return webdriver.Chrome(chrome_options=OPTIONS)
+
+
 class ChannelDriver:
     THUMBNAIL_LINK = '//a[@class="yt-simple-endpoint inline-block style-scope ytd-thumbnail"]'
 
-    def __init__(self, channel_id):
+    def __init__(self, channel_id, driver=None):
         print("Begin",channel_id)
         self.channel_id = channel_id
         self.write_file = 'channels/video links {}.csv'.format(self.channel_id)
-        if os.path.exists(self.write_file):
+        if os.path.exists('complete/complete-channels/{}'.format(self.channel_id)):
             return
-        self.driver = None
+        self.driver = driver
         self.default_waittime = 3
+
+    def start_driver(self):
+        self.driver = get_driver()
 
     def wait_for_element(self, until, message=''):
         try:
@@ -56,9 +64,11 @@ class ChannelDriver:
         random_wait(5, 6)
 
     def main(self):
-        self.driver = webdriver.Chrome(chrome_options=OPTIONS)
+        if self.driver is None:
+            self.driver = get_driver()
         self.go_to_channel()
         self.get_videos()
+
 
     def get_videos(self, n=10):
         video_ids = []
@@ -73,14 +83,17 @@ class ChannelDriver:
         df['channel_id'] = self.channel_id
         df.to_csv(self.write_file)
 
-
-
-def get_videos(channel_id):
-    td = ChannelDriver(channel_id)
-    if os.path.exists(td.write_file):
+def get_videos(channel_id,driver):
+    td = ChannelDriver(channel_id, driver)
+    if os.path.exists('complete/complete-channels/{}'.format(channel_id)):
         return
-    return td.main()
+    td.main()
+    f = open('complete/complete-channels/{}'.format(channel_id),'w')
+    f.close()
 
 
-df = pd.read_csv(filename)
-df[colname].apply(lambda x: get_videos(x))
+if __name__ == '__main__':
+    df = pd.read_csv(filename)
+    df = df[pd.notnull(df['valid channel id'])]
+    driver = get_driver()
+    df[colname].apply(lambda x: get_videos(x, driver))

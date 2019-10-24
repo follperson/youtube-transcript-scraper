@@ -13,7 +13,8 @@ from selenium.webdriver.common.keys import Keys
 from selenium import webdriver
 
 filename = 'meta_input.csv'			# filname with video ids
-colname = 'video_id'					# column storing video id
+video_id_col = 'video_id'					# column storing video id
+channel_col = 'channel_id'
 headless = True
 OUTDIR = './transcripts/'
 filepattern = 'tanscript_{}.txt'
@@ -52,17 +53,23 @@ class TranscriptDriver:
     TITLE_XPATH = '//h1[@class="title style-scope ytd-video-primary-info-renderer"]'
     DESCRIPTION_XPATH = '//div[@id="description"]'
     RATINGS_XPATH = '//yt-formatted-string[@id="text" and @class="style-scope ytd-toggle-button-renderer style-text"]'
+    DATE_XPATH = '//div[@id="date"]//yt-formatted-string'
+    VIEWS_XPATH = '//div[@id="count"]//span[@class="view-count style-scope yt-view-count-renderer"]'
+    DURATION_XPATH = '//div[@class="ytp-bound-time-right"]'
 
-    def __init__(self, video_id,driver=None):
+    def __init__(self, video_id, source_channel, driver=None):
         self.video_id = video_id
-        self.csv_path = 'transcripts/timed/{}.csv'.format(self.video_id)
-        self.txt_path = 'transcripts/untimed/{}.txt'.format(self.video_id)
+        self.csv_path = 'transcripts/timed/{}/{}.csv'.format(source_channel, self.video_id)
+        self.txt_path = 'transcripts/untimed/{}/{}.txt'.format(source_channel, self.video_id)
         self.transcript = ''
         self.transcript_timed = ''
         self.description = ''
         self.title = ''
         self.likes = ''
         self.dislikes = ''
+        self.views = ''
+        self.date = ''
+        self.duration = ''
         print("Begin", video_id)
         self.driver = driver
         self.default_waittime = 3
@@ -81,15 +88,26 @@ class TranscriptDriver:
             self.start_driver()
         self.navigate_to_page()
         self.log_get(self.get_transcript, self.transcript_timed, self.transcript)
-        self.log_get(self.get_title,self.title)
-        self.log_get(self.get_description,self.description)
-        self.log_get(self.get_rating,self.likes,self.dislikes)
-        f = open('complete/{}'.format(self.video_id),'w')
+        self.log_get(self.get_title, self.title)
+        self.log_get(self.get_description, self.description)
+        self.log_get(self.get_rating, self.likes, self.dislikes)
+        self.log_get(self.get_views, self.views)
+        self.log_get(self.get_date, self.date)
+        self.log_get(self.get_duration, self.duration)
+        f = open('complete/{}'.format(self.video_id), 'w')
         f.close()
 
     def navigate_to_page(self):
         self.driver.get(YOUTUBE_BASE + self.video_id)
         random_wait(2, 5)
+
+    def get_views(self):
+        element = self.wait_for_element(EC.presence_of_element_located((By.XPATH, self.VIEWS_XPATH)))
+        self.views = element.text
+
+    def get_date(self):
+        element = self.wait_for_element(EC.presence_of_element_located((By.XPATH,self.DATE_XPATH)))
+        self.date = element.text
 
     def get_title(self):
         title_element = self.wait_for_element(EC.presence_of_element_located((By.XPATH,self.TITLE_XPATH)))
@@ -103,6 +121,12 @@ class TranscriptDriver:
     def get_description(self):
         description_element = self.wait_for_element(EC.presence_of_element_located((By.XPATH,self.DESCRIPTION_XPATH)))
         self.description = description_element.text
+
+    def get_duration(self):
+        element = self.wait_for_element(EC.presence_of_element_located((By.XPATH, self.DURATION_XPATH)))
+        self.duration = element.text
+
+        pass
 
     def get_comments(self):
         pass
@@ -138,6 +162,10 @@ class TranscriptDriver:
         df['time'] = df['time'].str.replace('\n', '')
         self.transcript = ' '.join(df['text'])
         self.transcript_timed = df
+        if not os.path.exists(os.path.dirname(self.csv_path)):
+            os.makedirs(os.path.dirname(self.csv_path))
+        if not os.path.exists(os.path.dirname(self.txt_path)):
+            os.makedirs(os.path.dirname(self.txt_path))
         df.to_csv(self.csv_path,encoding='utf_8')
         with open(self.txt_path, 'w',encoding='utf_8',errors='ignore') as txt:
             txt.write(' '.join(df['text']))
@@ -152,29 +180,30 @@ def main():
     driver_proc = psutil.Process(driver.service.process.pid)
 
     for csv in os.listdir('channels'):
+        if '.csv' not in csv: continue
         print('--'*20,'Begin',csv,'--'*20)
         inflight = 'channels-mod/' + csv
         if not os.path.exists(inflight):
             shutil.copy('channels/' + csv, inflight)
         df = pd.read_csv(inflight)
-        cols = ['description','title','likes','dislikes']
+        cols = ['description','title','likes','dislikes', 'views', 'date']
         for i in df.index:
-            video_id = df.loc[i,colname]
-            td = TranscriptDriver(video_id, driver=driver)
+            video_id, source_channel = df.loc[i, [video_id_col, channel_col]]
+            td = TranscriptDriver(video_id, driver=driver, source_channel=source_channel)
             if os.path.exists('complete/' + video_id):
                 continue
             td.get_video_info()
 
             try:
-                df.loc[i, cols] = td.description, td.title, td.likes, td.dislikes
+                df.loc[i, cols] = td.description, td.title, td.likes, td.dislikes, td.views, td.date
             except KeyError:
                 df = df.assign(**{col:'' for col in cols})
-                df.loc[i, cols] = td.description, td.title, td.likes, td.dislikes
+                df.loc[i, cols] = td.description, td.title, td.likes, td.dislikes, td.views, td.date
 
             if not check_process(driver_proc):
                 driver = get_driver()
                 driver_proc = psutil.Process(driver.service.process.pid)
-            df.to_csv(inflight, encoding='utf_8')
+            df.to_csv(inflight, encoding='utf_8', index=False)
 
     if check_process(driver_proc):
         driver.quit()
