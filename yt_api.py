@@ -27,7 +27,7 @@ def get_videos_from_channel_id(channel_id):
     info = channel_response['items'][0]['snippet']
     channel_cols = ['viewCount','commentCount','subscriberCount','videoCount']
     channel_data = {col:stats[col]for col in channel_cols}
-    channel_data.update({col:info[col] for col in channel_info_cols})
+    channel_data.update({col:info[col] for col in channel_info_cols if col in info})
     playlist_request = youtube.playlistItems().list(playlistId=upload_id, part='snippet', maxResults=50)
     playlist_response = playlist_request.execute()
     cols = ['publishedAt','channelId','title','description','channelTitle']
@@ -50,18 +50,17 @@ def main():
     df = pd.read_csv('channels.csv')
     channel_data = {}
     video_data = {}
-    for i in df.index[:2]:
+    for i in df.index:
         print(df.loc[i, :])
         channel_id =df.loc[i,'channel_id']
         c_data, v_data = get_videos_from_channel_id(channel_id)
         channel_data.update({channel_id:c_data})
         video_data.update(v_data)
     df_channel = pd.DataFrame(channel_data)
-    df_video = pd.DataFrame(video_data)
+    df_video = pd.DataFrame.from_dict(video_data).T
     df_channel.to_csv('channel_data_ytapi.csv')
     df_video.to_csv('video_data_ytapi.csv')
 
 
-
-
-main()
+if __name__ == '__main__':
+    main()

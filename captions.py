@@ -13,8 +13,8 @@ from selenium.webdriver.common.keys import Keys
 from selenium import webdriver
 
 filename = 'meta_input.csv'			# filname with video ids
-video_id_col = 'video_id'					# column storing video id
-channel_col = 'channel_id'
+video_id_col = 'videoId'					# column storing video id
+channel_col = 'channelId'
 headless = True
 OUTDIR = './transcripts/'
 filepattern = 'tanscript_{}.txt'
@@ -44,6 +44,7 @@ def check_process(driver_process):
             return False
     return False
 
+
 class TranscriptDriver:
     MENU_TRIGGER = '//div[@id="container"]//yt-icon-button[@class="dropdown-trigger style-scope ytd-menu-renderer"]'
     TRANSCRIPT_BUTTON = '(//ytd-menu-popup-renderer//*/yt-formatted-string)[2]'
@@ -61,6 +62,7 @@ class TranscriptDriver:
         self.video_id = video_id
         self.csv_path = 'transcripts/timed/{}/{}.csv'.format(source_channel, self.video_id)
         self.txt_path = 'transcripts/untimed/{}/{}.txt'.format(source_channel, self.video_id)
+        # self.txt_path = 'transcripts/untimed/{}/{}.txt'.format(source_channel, self.video_id)
         self.transcript = ''
         self.transcript_timed = ''
         self.description = ''
@@ -94,6 +96,8 @@ class TranscriptDriver:
         self.log_get(self.get_views, self.views)
         self.log_get(self.get_date, self.date)
         self.log_get(self.get_duration, self.duration)
+
+    def close(self):
         f = open('complete/{}'.format(self.video_id), 'w')
         f.close()
 
@@ -162,20 +166,23 @@ class TranscriptDriver:
         df['time'] = df['time'].str.replace('\n', '')
         self.transcript = ' '.join(df['text'])
         self.transcript_timed = df
+        self.write_transcript_to_file()
+
+    def write_transcript_to_file(self):
         if not os.path.exists(os.path.dirname(self.csv_path)):
             os.makedirs(os.path.dirname(self.csv_path))
         if not os.path.exists(os.path.dirname(self.txt_path)):
             os.makedirs(os.path.dirname(self.txt_path))
-        df.to_csv(self.csv_path,encoding='utf_8')
+        self.transcript_timed.to_csv(self.csv_path,encoding='utf_8')
         with open(self.txt_path, 'w',encoding='utf_8',errors='ignore') as txt:
-            txt.write(' '.join(df['text']))
+            txt.write(self.transcript)
 
 
 
 
 
 
-def main():
+def main_channel_dir():
     driver =get_driver()
     driver_proc = psutil.Process(driver.service.process.pid)
 
@@ -205,6 +212,36 @@ def main():
                 driver_proc = psutil.Process(driver.service.process.pid)
             df.to_csv(inflight, encoding='utf_8', index=False)
 
+    if check_process(driver_proc):
+        driver.quit()
+
+
+def main():
+    driver = get_driver()
+    inflight = 'video_data_ytapi-inflight.csv'
+    driver_proc = psutil.Process(driver.service.process.pid)
+    df_video_meta = pd.read_csv(inflight).set_index(video_id_col)
+    cols = ['description-scraped', 'title-scraped', 'likes-scraped', 'dislikes-scraped', 'views-scraped', 'date-scraped']
+    counts = {x:0 for x in df_video_meta[channel_col].unique()}
+    for video_id in df_video_meta.index:
+        source_channel = df_video_meta.loc[video_id, channel_col]
+        counts[source_channel] += 1
+        if counts[source_channel] > 50:
+            continue
+        td = TranscriptDriver(video_id, driver=driver, source_channel=source_channel)
+        if os.path.exists('complete/' + video_id):
+            continue
+        td.get_video_info()
+        try:
+            df_video_meta.loc[video_id, cols] = td.description, td.title, td.likes, td.dislikes, td.views, td.date
+        except KeyError:
+            df_video_meta= df_video_meta.assign(**{col: '' for col in cols})
+            df_video_meta.loc[video_id, cols] = td.description, td.title, td.likes, td.dislikes, td.views, td.date
+        if not check_process(driver_proc):
+            driver = get_driver()
+            driver_proc = psutil.Process(driver.service.process.pid)
+        td.close()
+        df_video_meta.to_csv(inflight, encoding='utf_8', index=True)
     if check_process(driver_proc):
         driver.quit()
 
