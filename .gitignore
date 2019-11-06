@@ -3,3 +3,4 @@ channels/*
 transcripts/*
 complete/*
 *.csv
+.Rproj.user

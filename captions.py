@@ -222,12 +222,12 @@ def main():
     driver_proc = psutil.Process(driver.service.process.pid)
     df_video_meta = pd.read_csv(inflight).set_index(video_id_col)
     cols = ['description-scraped', 'title-scraped', 'likes-scraped', 'dislikes-scraped', 'views-scraped', 'date-scraped']
-    counts = {x:0 for x in df_video_meta[channel_col].unique()}
+    # counts = {x:0 for x in df_video_meta[channel_col].unique()}
     for video_id in df_video_meta.index:
         source_channel = df_video_meta.loc[video_id, channel_col]
-        counts[source_channel] += 1
-        if counts[source_channel] > 50:
-            continue
+        # counts[source_channel] += 1
+        # if counts[source_channel] > 50:
+        #     continue
         td = TranscriptDriver(video_id, driver=driver, source_channel=source_channel)
         if os.path.exists('complete/' + video_id):
             continue
@@ -245,6 +245,8 @@ def main():
     if check_process(driver_proc):
         driver.quit()
 
+
+# todo get tucker carlson and hannity specifically
 
 if __name__ == '__main__':
     main()
