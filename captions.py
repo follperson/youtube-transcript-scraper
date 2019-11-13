@@ -7,13 +7,13 @@ import pandas as pd
 from time import sleep
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
-from selenium.common.exceptions import TimeoutException, ElementClickInterceptedException
+from selenium.common.exceptions import NoSuchElementException
 from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
 from selenium import webdriver
 
-filename = 'meta_input.csv'			# filname with video ids
-video_id_col = 'videoId'					# column storing video id
+version = '20191112'
+video_info_fp = 'video_data_ytapi_{}-inflight.csv'.format(version)
+video_id_col = 'videoId'			# column storing video id
 channel_col = 'channelId'
 headless = True
 OUTDIR = './transcripts/'
@@ -76,6 +76,7 @@ class TranscriptDriver:
         self.driver = driver
         self.default_waittime = 3
         self.n_tries = 5
+        self.limited_scope = False
 
     def wait_for_element(self, until, waittime=None):
         if waittime is None:
@@ -92,10 +93,11 @@ class TranscriptDriver:
         self.log_get(self.get_transcript, self.transcript_timed, self.transcript)
         self.log_get(self.get_title, self.title)
         self.log_get(self.get_description, self.description)
-        self.log_get(self.get_rating, self.likes, self.dislikes)
-        self.log_get(self.get_views, self.views)
         self.log_get(self.get_date, self.date)
         self.log_get(self.get_duration, self.duration)
+        if not self.limited_scope:
+            self.log_get(self.get_rating, self.likes, self.dislikes)
+            self.log_get(self.get_views, self.views)
 
     def close(self):
         f = open('complete/{}'.format(self.video_id), 'w')
@@ -104,6 +106,14 @@ class TranscriptDriver:
     def navigate_to_page(self):
         self.driver.get(YOUTUBE_BASE + self.video_id)
         random_wait(2, 5)
+        try:
+            path = self.driver.find_element_by_xpath('//paper-button[@aria-label="I understand and wish to proceed"]')
+            path.click()
+            random_wait(5,10)
+            self.limited_scope = True
+        except NoSuchElementException:
+            pass
+
 
     def get_views(self):
         element = self.wait_for_element(EC.presence_of_element_located((By.XPATH, self.VIEWS_XPATH)))
@@ -129,8 +139,6 @@ class TranscriptDriver:
     def get_duration(self):
         element = self.wait_for_element(EC.presence_of_element_located((By.XPATH, self.DURATION_XPATH)))
         self.duration = element.text
-
-        pass
 
     def get_comments(self):
         pass
@@ -178,11 +186,8 @@ class TranscriptDriver:
             txt.write(self.transcript)
 
 
-
-
-
-
 def main_channel_dir():
+    """ designed for channel page scrapings. deprecated in favor of """
     driver =get_driver()
     driver_proc = psutil.Process(driver.service.process.pid)
 
@@ -218,30 +223,30 @@ def main_channel_dir():
 
 def main():
     driver = get_driver()
-    inflight = 'video_data_ytapi-inflight.csv'
+
     driver_proc = psutil.Process(driver.service.process.pid)
-    df_video_meta = pd.read_csv(inflight).set_index(video_id_col)
-    cols = ['description-scraped', 'title-scraped', 'likes-scraped', 'dislikes-scraped', 'views-scraped', 'date-scraped']
+    df_video_meta = pd.read_csv(video_info_fp).set_index(video_id_col)
+    cols = ['description-scraped', 'title-scraped', 'likes-scraped', 'dislikes-scraped', 'views-scraped', 'date-scraped','duration-scraped']
     # counts = {x:0 for x in df_video_meta[channel_col].unique()}
     for video_id in df_video_meta.index:
+        if os.path.exists('complete/' + video_id):
+            continue
         source_channel = df_video_meta.loc[video_id, channel_col]
         # counts[source_channel] += 1
         # if counts[source_channel] > 50:
         #     continue
         td = TranscriptDriver(video_id, driver=driver, source_channel=source_channel)
-        if os.path.exists('complete/' + video_id):
-            continue
         td.get_video_info()
         try:
-            df_video_meta.loc[video_id, cols] = td.description, td.title, td.likes, td.dislikes, td.views, td.date
+            df_video_meta.loc[video_id, cols] = td.description, td.title, td.likes, td.dislikes, td.views, td.date, td.duration
         except KeyError:
             df_video_meta= df_video_meta.assign(**{col: '' for col in cols})
-            df_video_meta.loc[video_id, cols] = td.description, td.title, td.likes, td.dislikes, td.views, td.date
+            df_video_meta.loc[video_id, cols] = td.description, td.title, td.likes, td.dislikes, td.views, td.date, td.duration
         if not check_process(driver_proc):
             driver = get_driver()
             driver_proc = psutil.Process(driver.service.process.pid)
         td.close()
-        df_video_meta.to_csv(inflight, encoding='utf_8', index=True)
+        df_video_meta.to_csv(video_info_fp, encoding='utf_8', index=True)
     if check_process(driver_proc):
         driver.quit()
 
