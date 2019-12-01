@@ -3,7 +3,7 @@ import pandas as pd
 import googleapiclient.discovery
 import googleapiclient.errors
 
-version = '20191112_test'
+version = '20191201_2'
 scopes = ["https://www.googleapis.com/auth/youtube.readonly"]
 
 
@@ -43,10 +43,10 @@ def get_channel_info(channel_id, youtube):
     return upload_id, channel_data
 
 
-def get_videos_from_playist_id(upload_id, youtube=None):
+def get_videos_from_playist_id(playlist_id, youtube=None):
     part = 'snippet'
     max_results = 50
-    playlist_request = youtube.playlistItems().list(playlistId=upload_id, part=part, maxResults=max_results)
+    playlist_request = youtube.playlistItems().list(playlistId=playlist_id, part=part, maxResults=max_results)
     playlist_response = playlist_request.execute()
     cols = ['publishedAt','channelId','title','description','channelTitle']
     all_video_data={}
@@ -56,12 +56,14 @@ def get_videos_from_playist_id(upload_id, youtube=None):
         for item in playlist_response['items']:
             all_video_data[item['snippet']['resourceId']['videoId']] ={col:item['snippet'][col] for col in cols}
         next_token = playlist_response['nextPageToken']
-        playlist_request = youtube.playlistItems().list(playlistId=upload_id,
+        playlist_request = youtube.playlistItems().list(playlistId=playlist_id,
                                                         part=part,
                                                         maxResults=max_results,
                                                         pageToken=next_token)
         playlist_response = playlist_request.execute()
         steps += 1
+    for video in all_video_data:
+        all_video_data[video].update({'playlistId': playlist_id})
     return all_video_data
 
 
@@ -83,6 +85,20 @@ def main():
     df_channel.to_csv('data/channel_data_ytapi_{}.csv'.format(version), index=False)
     df_video.to_csv('data/video_data_ytapi_{}.csv'.format(version), index=False)
     df_video.to_csv('data/video_data_ytapi_{}-inflight.csv'.format(version), index=False)
+
+
+def main_playlist():
+    df = pd.read_csv('playlist.csv')
+    video_data = {}
+    youtube = get_youtube_api_connection()
+    for i in df.index:
+        print(df.loc[i, :])
+        playlist_id = df.loc[i,'playlistId']
+        v_data = get_videos_from_playist_id(playlist_id, youtube)
+        video_data.update(v_data)
+    df_video = pd.DataFrame.from_dict(video_data).T.reset_index().rename(columns={'index':'videoId'})
+    df_video.to_csv('data/video_data_ytapi_{}_playlist.csv'.format(version), index=False)
+    df_video.to_csv('data/video_data_ytapi_{}_playlist-inflight.csv'.format(version), index=False)
 
 
 if __name__ == '__main__':

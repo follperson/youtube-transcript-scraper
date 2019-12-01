@@ -11,19 +11,22 @@ from selenium.common.exceptions import NoSuchElementException
 from selenium.webdriver.common.by import By
 from selenium import webdriver
 
-version = '20191112'
-video_info_fp = 'video_data_ytapi_{}-inflight.csv'.format(version)
+n = 5
+version = '20191201_{}-{}'.format(str(7000*(n-1)),str(7000*(n)))
+print(version)
+video_info_fp = 'data/video_data_ytapi_{}-inflight.csv'.format(version)
 video_id_col = 'videoId'			# column storing video id
 channel_col = 'channelId'
 headless = True
 OUTDIR = './transcripts/'
 filepattern = 'tanscript_{}.txt'
 OPTIONS = webdriver.ChromeOptions()
-#OPTIONS.headless=True
+OPTIONS.headless=True
+OPTIONS.add_argument('--mute-audio')
 YOUTUBE_BASE = "https://www.youtube.com/watch?v="
 OUTER_FRAME_XPATH = '//body[@dir="ltr"]'
-
-
+TRANSCRIPT_BLOCKED = "No Transcript Available"
+TRANSCRIPT_FAILED = 'FAILED'
 
 def random_wait(smin=5, smax=15):
     sleep(random.uniform(smin, smax))
@@ -60,9 +63,7 @@ class TranscriptDriver:
 
     def __init__(self, video_id, source_channel, driver=None):
         self.video_id = video_id
-        self.csv_path = 'transcripts/timed/{}/{}.csv'.format(source_channel, self.video_id)
         self.txt_path = 'transcripts/untimed/{}/{}.txt'.format(source_channel, self.video_id)
-        # self.txt_path = 'transcripts/untimed/{}/{}.txt'.format(source_channel, self.video_id)
         self.transcript = ''
         self.transcript_timed = ''
         self.description = ''
@@ -72,10 +73,9 @@ class TranscriptDriver:
         self.views = ''
         self.date = ''
         self.duration = ''
-        print("Begin", video_id)
         self.driver = driver
         self.default_waittime = 3
-        self.n_tries = 5
+        self.n_tries = 3
         self.limited_scope = False
 
     def wait_for_element(self, until, waittime=None):
@@ -87,6 +87,7 @@ class TranscriptDriver:
         self.driver = get_driver()
 
     def get_video_info(self):
+        print("Begin", self.video_id)
         if self.driver is None:
             self.start_driver()
         self.navigate_to_page()
@@ -156,16 +157,17 @@ class TranscriptDriver:
             random_wait(5,6)
 
     def get_transcript(self):
-        menu_button = self.wait_for_element(EC.element_to_be_clickable((By.XPATH,self.MENU_TRIGGER)))
+        menu_button = self.wait_for_element(EC.element_to_be_clickable((By.XPATH, self.MENU_TRIGGER)))
         menu_button.click()
 
-        transcript_button = self.wait_for_element(EC.element_to_be_clickable((By.XPATH,self.TRANSCRIPT_BUTTON)))
+        transcript_button = self.wait_for_element(EC.element_to_be_clickable((By.XPATH, self.TRANSCRIPT_BUTTON)))
         if 'transcript' not in transcript_button.text:
-            print("No Transcript Available")
+            self.transcript = TRANSCRIPT_BLOCKED
             return
         transcript_button.click()
 
-        transcript_element = self.wait_for_element(EC.presence_of_element_located((By.XPATH, self.FULL_TRANSCRIPT_XPATH)), 10)
+        transcript_element = self.wait_for_element(EC.presence_of_element_located(
+            (By.XPATH, self.FULL_TRANSCRIPT_XPATH)), 10)
         transcript_raw = transcript_element.text
         text = re.split('\d*:\d{2}\n', transcript_raw)[1:]
         times = re.findall('\d*:\d{2}\n', transcript_raw)
@@ -177,71 +179,52 @@ class TranscriptDriver:
         self.write_transcript_to_file()
 
     def write_transcript_to_file(self):
-        if not os.path.exists(os.path.dirname(self.csv_path)):
-            os.makedirs(os.path.dirname(self.csv_path))
         if not os.path.exists(os.path.dirname(self.txt_path)):
             os.makedirs(os.path.dirname(self.txt_path))
-        self.transcript_timed.to_csv(self.csv_path,encoding='utf_8')
         with open(self.txt_path, 'w',encoding='utf_8',errors='ignore') as txt:
             txt.write(self.transcript)
 
-
-def main_channel_dir():
-    """ designed for channel page scrapings. deprecated in favor of """
-    driver =get_driver()
-    driver_proc = psutil.Process(driver.service.process.pid)
-
-    for csv in os.listdir('channels'):
-        if '.csv' not in csv: continue
-        print('--'*20,'Begin',csv,'--'*20)
-        inflight = 'channels-mod/' + csv
-        if not os.path.exists(inflight):
-            shutil.copy('channels/' + csv, inflight)
-        df = pd.read_csv(inflight)
-        cols = ['description','title','likes','dislikes', 'views', 'date']
-        for i in df.index:
-            video_id, source_channel = df.loc[i, [video_id_col, channel_col]]
-            td = TranscriptDriver(video_id, driver=driver, source_channel=source_channel)
-            if os.path.exists('complete/' + video_id):
-                continue
-            td.get_video_info()
-
-            try:
-                df.loc[i, cols] = td.description, td.title, td.likes, td.dislikes, td.views, td.date
-            except KeyError:
-                df = df.assign(**{col:'' for col in cols})
-                df.loc[i, cols] = td.description, td.title, td.likes, td.dislikes, td.views, td.date
-
-            if not check_process(driver_proc):
-                driver = get_driver()
-                driver_proc = psutil.Process(driver.service.process.pid)
-            df.to_csv(inflight, encoding='utf_8', index=False)
-
-    if check_process(driver_proc):
-        driver.quit()
+def check_completed(path):
+    if os.path.exists(path):
+        try:
+            with open(path) as fopen:
+                content = fopen.read()
+        except UnicodeDecodeError:
+            return True
+        if len(content) > 10:
+            return True
+    return False
 
 
 def main():
     driver = get_driver()
 
     driver_proc = psutil.Process(driver.service.process.pid)
-    df_video_meta = pd.read_csv(video_info_fp).set_index(video_id_col)
-    cols = ['description-scraped', 'title-scraped', 'likes-scraped', 'dislikes-scraped', 'views-scraped', 'date-scraped','duration-scraped']
-    # counts = {x:0 for x in df_video_meta[channel_col].unique()}
+    df_video_meta = pd.read_csv(video_info_fp)
+    df_video_meta = df_video_meta.drop_duplicates(video_id_col).set_index(video_id_col)
+    cols = ['description-scraped', 'title-scraped', 'likes-scraped', 'dislikes-scraped', 'views-scraped',
+            'date-scraped', 'duration-scraped', 'transcript-scraped']
+    for col in cols:
+        if col not in df_video_meta.columns:
+            df_video_meta[col] = pd.np.nan
+
     for video_id in df_video_meta.index:
-        if os.path.exists('complete/' + video_id):
+        ts = df_video_meta.loc[video_id, 'transcript-scraped']
+        if not (pd.isnull(ts) | (ts == TRANSCRIPT_FAILED)):
             continue
         source_channel = df_video_meta.loc[video_id, channel_col]
-        # counts[source_channel] += 1
-        # if counts[source_channel] > 50:
-        #     continue
         td = TranscriptDriver(video_id, driver=driver, source_channel=source_channel)
+        if check_completed(td.txt_path):
+            df_video_meta.loc[video_id, 'transcript-scraped'] = True
+            continue
+
         td.get_video_info()
-        try:
-            df_video_meta.loc[video_id, cols] = td.description, td.title, td.likes, td.dislikes, td.views, td.date, td.duration
-        except KeyError:
-            df_video_meta= df_video_meta.assign(**{col: '' for col in cols})
-            df_video_meta.loc[video_id, cols] = td.description, td.title, td.likes, td.dislikes, td.views, td.date, td.duration
+
+        if td.transcript == '': transcript_found = TRANSCRIPT_FAILED
+        elif td.transcript == TRANSCRIPT_BLOCKED: transcript_found = TRANSCRIPT_BLOCKED
+        else: transcript_found = True
+        df_video_meta.loc[
+            video_id, cols] = td.description, td.title, td.likes, td.dislikes, td.views, td.date, td.duration, transcript_found
         if not check_process(driver_proc):
             driver = get_driver()
             driver_proc = psutil.Process(driver.service.process.pid)
@@ -250,8 +233,6 @@ def main():
     if check_process(driver_proc):
         driver.quit()
 
-
-# todo get tucker carlson and hannity specifically
 
 if __name__ == '__main__':
     main()
