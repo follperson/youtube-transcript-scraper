@@ -3,7 +3,7 @@ import pandas as pd
 import googleapiclient.discovery
 import googleapiclient.errors
 
-version = '20191201_2'
+version = '20191202'
 scopes = ["https://www.googleapis.com/auth/youtube.readonly"]
 
 
@@ -52,15 +52,15 @@ def get_videos_from_playist_id(playlist_id, youtube=None):
     all_video_data={}
     max_steps = 6
     steps = 0
+    for item in playlist_response['items']:
+        all_video_data[item['snippet']['resourceId']['videoId']] = {col: item['snippet'][col] for col in cols}
     while 'nextPageToken' in playlist_response and steps < max_steps:
-        for item in playlist_response['items']:
-            all_video_data[item['snippet']['resourceId']['videoId']] ={col:item['snippet'][col] for col in cols}
         next_token = playlist_response['nextPageToken']
-        playlist_request = youtube.playlistItems().list(playlistId=playlist_id,
-                                                        part=part,
-                                                        maxResults=max_results,
+        playlist_request = youtube.playlistItems().list(playlistId=playlist_id, part=part, maxResults=max_results,
                                                         pageToken=next_token)
         playlist_response = playlist_request.execute()
+        for item in playlist_response['items']:
+            all_video_data[item['snippet']['resourceId']['videoId']] ={col:item['snippet'][col] for col in cols}
         steps += 1
     for video in all_video_data:
         all_video_data[video].update({'playlistId': playlist_id})
@@ -68,7 +68,8 @@ def get_videos_from_playist_id(playlist_id, youtube=None):
 
 
 def main():
-    df = pd.read_csv('channels.csv')
+    df = pd.read_csv('channels.csv',encoding='utf-8')
+    # df = df.loc[~df['Completed'].fillna(True)]
     df = df.loc[pd.isnull(df['Completed'])]
     channel_data = {}
     video_data = {}
@@ -78,7 +79,7 @@ def main():
         channel_id = df.loc[i,'channelId']
 
         c_data, v_data = get_data_from_api(channel_id, youtube, True)
-        channel_data.update({channel_id:c_data})
+        channel_data.update({channel_id: c_data})
         video_data.update(v_data)
     df_channel = pd.DataFrame(channel_data).T.reset_index().rename(columns={'index':'channelId'})
     df_video = pd.DataFrame.from_dict(video_data).T.reset_index().rename(columns={'index':'videoId'})
