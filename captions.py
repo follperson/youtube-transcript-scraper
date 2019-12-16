@@ -1,4 +1,5 @@
-import shutil
+# Primary caption scraping program
+
 import psutil
 import os
 import re
@@ -11,22 +12,19 @@ from selenium.common.exceptions import NoSuchElementException
 from selenium.webdriver.common.by import By
 from selenium import webdriver
 
-n = 5
-version = '20191201_{}-{}'.format(str(7000*(n-1)),str(7000*(n)))
+version = '20191201'
 print(version)
-video_info_fp = 'data/video_data_ytapi_{}-inflight.csv'.format(version)
+video_info_fp = 'data/video_data_ytapi_{}-inflight.csv'.format(version)  # the file which will be updated with
 video_id_col = 'videoId'			# column storing video id
 channel_col = 'channelId'
-headless = True
 OUTDIR = './transcripts/'
-filepattern = 'tanscript_{}.txt'
 OPTIONS = webdriver.ChromeOptions()
-OPTIONS.headless=True
+OPTIONS.headless = True  # set this to false when developing, but True when running in production
 OPTIONS.add_argument('--mute-audio')
 YOUTUBE_BASE = "https://www.youtube.com/watch?v="
-OUTER_FRAME_XPATH = '//body[@dir="ltr"]'
 TRANSCRIPT_BLOCKED = "No Transcript Available"
 TRANSCRIPT_FAILED = 'FAILED'
+
 
 def random_wait(smin=5, smax=15):
     sleep(random.uniform(smin, smax))
